@@ -52,7 +52,7 @@ Return **only** valid JSON with exactly these three keys:
 Guidelines:
 - Be specific and factual — only mention technologies you see evidence of.
 - For *technologies*, include languages ordered by percentage, then frameworks and notable libraries.
-- For *structure*, refer to concrete directory names from the tree.
+- For *structure*, write 1-2 sentences describing how the project is organised, referencing the concrete directory and file names you see in the tree (e.g. "The project follows a standard Python package layout with source code in `src/`, tests in `tests/`, and configuration in `pyproject.toml`.").
 - Do NOT invent information not supported by the provided content.
 """
 
