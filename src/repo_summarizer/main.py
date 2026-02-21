@@ -1,6 +1,5 @@
 from __future__ import annotations
 import logging
-import os
 import uvicorn
 from repo_summarizer.infrastructure.config import get_settings
 
@@ -14,8 +13,8 @@ def main() -> None:
     uvicorn.run(
         "repo_summarizer.interface.app:create_app",
         factory=True,
-        host=os.environ.get("HOST", "0.0.0.0"),
-        port=int(os.environ.get("PORT", 8000)),
+        host=settings.host,
+        port=settings.port,
         log_level=settings.log_level.lower(),
     )
 

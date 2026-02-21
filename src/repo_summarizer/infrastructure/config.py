@@ -24,6 +24,8 @@ class Settings(BaseSettings):
     max_file_size_kb: int = 200
     max_files_to_fetch: int = 30
     log_level: str = "INFO"
+    host: str = "0.0.0.0"
+    port: int = 8000
 
 
 @lru_cache(maxsize=1)

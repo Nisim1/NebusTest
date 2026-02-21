@@ -20,20 +20,40 @@ python -m venv .venv
 source .venv/bin/activate
 pip install -e .
 
-# 3. Set your OpenAI key
-export OPENAI_API_KEY="sk-..."
+# 3. Configure environment
+cp .env.example .env
+# Open .env and set your OPENAI_API_KEY (required)
+# Adjust PORT, HOST, or any other variable as needed
 
 # 4. Run
 python -m repo_summarizer.main
 ```
 
-The server starts on **http://localhost:8000**. Test it:
+The server starts on **http://localhost:8000** (or whatever `PORT`/`HOST` you set in `.env`). Test it:
 
 ```bash
 curl -X POST http://localhost:8000/summarize \
   -H "Content-Type: application/json" \
   -d '{"github_url": "https://github.com/psf/requests"}'
 ```
+
+---
+
+## Environment Variables
+
+All configuration is loaded from the `.env` file (copy `.env.example` to get started).
+
+| Variable | Required | Default | Description |
+|----------|----------|---------|-------------|
+| `OPENAI_API_KEY` | **Yes** | — | OpenAI API key |
+| `OPENAI_MODEL` | No | `gpt-4o-mini` | Model used for summarisation |
+| `GITHUB_TOKEN` | No | — | GitHub personal access token (raises rate limit from 60 → 5,000 req/h) |
+| `MAX_CONTEXT_TOKENS` | No | `32000` | Total token budget for LLM context |
+| `MAX_FILE_SIZE_KB` | No | `200` | Skip files larger than this (KB) |
+| `MAX_FILES_TO_FETCH` | No | `30` | Max files to download per request |
+| `LOG_LEVEL` | No | `INFO` | Logging verbosity (`DEBUG` / `INFO` / `WARNING` / `ERROR`) |
+| `HOST` | No | `0.0.0.0` | Interface the server binds to |
+| `PORT` | No | `8000` | Port the server listens on |
 
 ---
 
@@ -58,10 +78,11 @@ curl -X POST http://localhost:8000/summarize \
          Dependencies point INWARD only ↑
 ```
 
-**Clean Architecture rules enforced:**
-- Domain defines `Protocol`-based ports (`RepoFetcher`, `LlmGateway`); infrastructure implements them.
-- The service layer contains pure, testable logic — no HTTP, no SDK imports.
-- The interface layer is a thin shell: parse request → call use case → map response.
+The project follows **Clean Architecture**:
+- **Domain** defines `Protocol`-based ports (`RepoFetcher`, `LlmGateway`); nothing here imports from infrastructure or interface.
+- **Services** contain pure, testable business logic — no HTTP clients, no SDK imports.
+- **Infrastructure** implements the ports (GitHub REST, OpenAI SDK). Swapping providers means changing one adapter file.
+- **Interface** is a thin FastAPI shell: parse request → call use case → map response.
 - Cross-layer communication uses frozen dataclasses (entities) or Pydantic models (DTOs).
 
 ---
@@ -76,7 +97,7 @@ Request → Validate URL → Fetch metadata & tree → Filter files
         → Multi-pass LLM summarisation → Structured JSON response
 ```
 
-### Why each step exists
+### Design decisions
 
 | Step | What | Why |
 |------|------|-----|
@@ -85,34 +106,8 @@ Request → Validate URL → Fetch metadata & tree → Filter files
 | **Graph centrality ranking** | Build a directed import graph → compute PageRank → rank files | Files imported by many others are structural pillars. PageRank finds them in O(n+e) — fast and intuitive for "most depended-on" ranking. Falls back to heuristic scoring for non-Python repos. |
 | **Deterministic token budgeting** | `tiktoken` (cl100k_base) for exact counts; proportional allocation with rollover | No guessing — every token is accounted for. Budget: README 30%, Config 15%, Tree 10%, Source skeletons 40%, Reserve 5%. Unused slots roll tokens forward. Same repo → same context → reproducible results. |
 | **Security sentinel** | Regex-based secret detection + `[REDACTED]` replacement | Never send API keys, tokens, passwords, or private keys to an external LLM. Patterns cover AWS keys, GitHub tokens, JWTs, connection strings, PEM headers, and generic `password=` / `secret=` patterns. |
-| **Multi-pass summarisation** | If source content exceeds 2× its budget slot: Pass 1 summarises top files individually, Pass 2 synthesises everything. | Single-pass works for most repos. Multi-pass handles very large repos without crashing or losing information — summarise parts, then combine. |
-
----
-
-## Model Choice
-
-**GPT-4o-mini** (configurable via `OPENAI_MODEL` env var)
-
-Chosen for its excellent structured JSON output quality and strong performance at code analysis tasks. The `response_format={"type": "json_object"}` mode guarantees parseable output, and `temperature=0.2` keeps summaries factual and deterministic.
-
----
-
-## Repository Content Strategy
-
-### What we include (in priority order)
-
-1. **README** — 80% of project understanding comes from a good README
-2. **Config/metadata** — `pyproject.toml`, `package.json`, `Cargo.toml`, `Dockerfile` reveal the tech stack instantly
-3. **Directory tree** — (capped at 200 lines) shows project layout at a glance
-4. **Source file skeletons** — AST-extracted class/function signatures with docstrings, ordered by import-graph centrality
-
-### What we skip
-
-- **Vendor/generated**: `node_modules/`, `dist/`, `build/`, `venv/`, `__pycache__/`
-- **Binaries**: `.png`, `.jpg`, `.pdf`, `.exe`, `.so`, `.woff`, `.zip`, etc.
-- **Lock files**: `package-lock.json`, `yarn.lock`, `poetry.lock`, `Cargo.lock`
-- **Large files**: anything >200 KB (configurable)
-- **Secret files**: `.env`, `.env.local`, `.env.production`
+| **Multi-pass summarisation** | If source content exceeds 2× its budget slot: Pass 1 summarises top files individually, Pass 2 synthesises everything | Single-pass works for most repos. Multi-pass handles very large repos without crashing or losing information — summarise parts, then combine. |
+| **GPT-4o-mini default** | `response_format={"type": "json_object"}` + `temperature=0.2` | Guarantees parseable structured output. Low temperature keeps summaries factual and deterministic. |
 
 ### Token budget allocation
 
@@ -125,20 +120,6 @@ Chosen for its excellent structured JSON output quality and strong performance a
 | Reserve | 5% | Safety margin for prompt overhead |
 
 Unused tokens from earlier slots **roll over** to subsequent slots — no capacity is wasted.
-
----
-
-## Environment Variables
-
-| Variable | Required | Default | Description |
-|----------|----------|---------|-------------|
-| `OPENAI_API_KEY` | **Yes** | — | OpenAI API key |
-| `OPENAI_MODEL` | No | `gpt-4o-mini` | Model to use for summarisation |
-| `GITHUB_TOKEN` | No | — | GitHub personal access token (raises rate limit from 60 → 5,000 req/h) |
-| `MAX_CONTEXT_TOKENS` | No | `12000` | Total token budget for LLM context |
-| `MAX_FILE_SIZE_KB` | No | `200` | Skip files larger than this |
-| `MAX_FILES_TO_FETCH` | No | `30` | Max files to download per request |
-| `LOG_LEVEL` | No | `INFO` | Logging verbosity |
 
 ---
 
@@ -202,10 +183,10 @@ src/repo_summarizer/
 │   ├── token_budget.py              # tiktoken-based budget allocator
 │   ├── security_sentinel.py         # Secret detection & redaction
 │   └── content_assembler.py         # Build structured LLM context
-└── infrastructure/
-    ├── config.py                    # Pydantic Settings (env vars)
-    ├── github_rest_adapter.py       # RepoFetcher → GitHub REST API
-    └── openai_adapter.py            # LlmGateway → OpenAI SDK
+├── infrastructure/
+│   ├── config.py                    # Pydantic Settings (env vars + .env file)
+│   ├── github_rest_adapter.py       # RepoFetcher → GitHub REST API
+│   └── openai_adapter.py            # LlmGateway → OpenAI SDK
 └── interface/
     ├── app.py                       # FastAPI factory + lifespan
     ├── routes.py                    # POST /summarize (thin controller)
