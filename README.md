@@ -9,6 +9,24 @@ POST /summarize  {"github_url": "https://github.com/psf/requests"}
 
 ---
 
+## Key Design Choices
+
+### Why GPT-4o-mini?
+
+GPT-4o-mini delivers strong code-analysis quality at a fraction of the cost of larger models. It supports `response_format={"type": "json_object"}` which guarantees valid, parseable JSON output without any post-processing. Combined with `temperature=0.2`, responses are factual and deterministic — the same repo produces the same summary. It was the best balance of quality, reliability, and cost for this task.
+
+### Why `raw.githubusercontent.com` for file content (no `GITHUB_TOKEN` required)?
+
+The task specification does not require a GitHub token. To make it easy for anyone to test the API out of the box — including supervisors evaluating the submission — file content is fetched from `https://raw.githubusercontent.com`, which is GitHub's public CDN for raw file content. It:
+
+- **Requires no authentication** — works without a `GITHUB_TOKEN`
+- **Has a generous rate limit** — far less restrictive than the authenticated GitHub REST API file-content endpoint
+- **Is stable and fast** — the same URL scheme GitHub itself uses for raw file links
+
+The `GITHUB_TOKEN` is still supported (and recommended for heavy use) to raise the metadata API rate limit from 60 → 5,000 req/h, but it is entirely optional for normal testing.
+
+---
+
 ## Quick Start
 
 ```bash
