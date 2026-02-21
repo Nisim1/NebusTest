@@ -1,14 +1,8 @@
-"""File filtering — decide which files to keep and how to classify them.
-
-This module is pure logic with no I/O dependencies.  It receives the raw
-tree from the ``RepoFetcher`` and returns only the nodes worth fetching.
-"""
+"""File filtering — decide which files to keep and how to classify them."""
 
 from __future__ import annotations
 
 from repo_summarizer.domain.entities import FileCategory, FileNode
-
-# ── Directories to skip entirely ────────────────────────────────────────────
 
 SKIP_DIRS: frozenset[str] = frozenset(
     {
@@ -42,32 +36,20 @@ SKIP_DIRS: frozenset[str] = frozenset(
     }
 )
 
-# ── File extensions to skip ─────────────────────────────────────────────────
-
 SKIP_EXTENSIONS: frozenset[str] = frozenset(
     {
-        # Binary / compiled
         ".pyc", ".pyo", ".so", ".o", ".a", ".dylib",
         ".dll", ".exe", ".bin", ".class", ".jar",
-        # Images / media
         ".png", ".jpg", ".jpeg", ".gif", ".bmp", ".svg", ".ico",
         ".webp", ".mp3", ".mp4", ".avi", ".mov", ".wav",
-        # Fonts
         ".woff", ".woff2", ".ttf", ".eot", ".otf",
-        # Archives
         ".zip", ".tar", ".gz", ".bz2", ".rar", ".7z",
-        # Documents
         ".pdf", ".doc", ".docx", ".xls", ".xlsx",
-        # Lock / generated
         ".lock",
-        # Data blobs
         ".min.js", ".min.css", ".map",
-        # Misc
         ".DS_Store",
     }
 )
-
-# ── Exact filenames to skip ─────────────────────────────────────────────────
 
 SKIP_FILENAMES: frozenset[str] = frozenset(
     {
@@ -86,13 +68,9 @@ SKIP_FILENAMES: frozenset[str] = frozenset(
     }
 )
 
-# ── Files always classified as secrets (never sent to LLM) ─────────────────
-
 SECRET_FILES: frozenset[str] = frozenset(
     {".env", ".env.local", ".env.production", ".env.development"}
 )
-
-# ── Name-based category rules ──────────────────────────────────────────────
 
 README_NAMES: frozenset[str] = frozenset(
     {"readme.md", "readme.rst", "readme.txt", "readme"}
@@ -130,9 +108,6 @@ TEST_INDICATORS: tuple[str, ...] = (
 DOCS_INDICATORS: tuple[str, ...] = (
     "docs/", "doc/", "documentation/",
 )
-
-
-# ── Public API ──────────────────────────────────────────────────────────────
 
 
 def _segment_in_skip_dirs(path: str) -> bool:

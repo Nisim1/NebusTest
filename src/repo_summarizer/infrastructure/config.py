@@ -1,8 +1,4 @@
-"""Application configuration — loaded from environment variables.
-
-Uses pydantic-settings so that every knob is typed, validated, and
-documented in one place.  ``SecretStr`` prevents accidental logging.
-"""
+"""Application configuration — loaded from environment variables."""
 
 from __future__ import annotations
 
@@ -21,10 +17,7 @@ class Settings(BaseSettings):
         extra="ignore",
     )
 
-    # ── Required ────────────────────────────────────────────────────────
     openai_api_key: SecretStr
-
-    # ── Optional ────────────────────────────────────────────────────────
     openai_model: str = "gpt-4o-mini"
     github_token: SecretStr | None = None
     max_context_tokens: int = 32_000

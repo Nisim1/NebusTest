@@ -1,9 +1,4 @@
-"""AST skeleton extraction — maximum information density per token.
-
-For Python files the stdlib ``ast`` module produces reliable results.
-For JS/TS and other languages we fall back to regex-based declaration
-extraction.  Parse failures degrade gracefully to a head-of-file excerpt.
-"""
+"""AST skeleton extraction — structural summary per source file."""
 
 from __future__ import annotations
 
@@ -14,14 +9,10 @@ from typing import Sequence
 
 from repo_summarizer.domain.entities import FileSkeletonResult
 
-# ── Language detection by extension ─────────────────────────────────────────
-
 _PYTHON_EXTS = frozenset({".py", ".pyw"})
 _JS_TS_EXTS = frozenset({".js", ".jsx", ".ts", ".tsx", ".mjs", ".cjs"})
 
 _MAX_FALLBACK_LINES = 60
-
-# ── JS / TS declaration patterns ────────────────────────────────────────────
 
 _JS_PATTERNS: list[re.Pattern[str]] = [
     re.compile(r"^\s*(?:export\s+)?(?:default\s+)?class\s+\w+", re.MULTILINE),
@@ -31,11 +22,8 @@ _JS_PATTERNS: list[re.Pattern[str]] = [
     re.compile(r"^\s*(?:import|require)\s*[\({]", re.MULTILINE),
 ]
 
-# ── Python import extraction helpers ────────────────────────────────────────
-
 
 def _extract_python_imports(tree: ast.Module) -> list[str]:
-    """Extract import targets from an AST."""
     imports: list[str] = []
     for node in ast.walk(tree):
         if isinstance(node, ast.Import):
@@ -62,15 +50,12 @@ def _format_function(node: ast.FunctionDef | ast.AsyncFunctionDef) -> str:
     prefix = "async def" if isinstance(node, ast.AsyncFunctionDef) else "def"
     args_parts: list[str] = []
 
-    # Regular args
     for arg in node.args.args:
         args_parts.append(_format_arg(arg))
 
-    # *args
     if node.args.vararg:
         args_parts.append(f"*{_format_arg(node.args.vararg)}")
 
-    # **kwargs
     if node.args.kwarg:
         args_parts.append(f"**{_format_arg(node.args.kwarg)}")
 
@@ -94,13 +79,11 @@ def _format_function(node: ast.FunctionDef | ast.AsyncFunctionDef) -> str:
 
 
 def _extract_python_skeleton(source: str) -> tuple[str, list[str]]:
-    """Parse Python source and return (skeleton_text, import_list)."""
     tree = ast.parse(source)
     imports = _extract_python_imports(tree)
 
     parts: list[str] = []
 
-    # Module docstring
     doc = ast.get_docstring(tree)
     if doc:
         first_line = doc.splitlines()[0]
@@ -125,18 +108,13 @@ def _extract_python_skeleton(source: str) -> tuple[str, list[str]]:
     return skeleton, imports
 
 
-# ── JS/TS skeleton extraction ───────────────────────────────────────────────
-
-
 def _extract_js_skeleton(source: str) -> tuple[str, list[str]]:
-    """Regex-based structural extraction for JavaScript / TypeScript."""
     lines = source.splitlines()
     declarations: list[str] = []
     imports: list[str] = []
 
     for line in lines:
         stripped = line.strip()
-        # Imports
         if stripped.startswith(("import ", "const ")) and "require(" in stripped:
             imports.append(stripped)
             continue
@@ -144,7 +122,6 @@ def _extract_js_skeleton(source: str) -> tuple[str, list[str]]:
             imports.append(stripped)
             continue
 
-        # Match declarations
         for pattern in _JS_PATTERNS:
             if pattern.match(line):
                 declarations.append(stripped)
@@ -155,16 +132,11 @@ def _extract_js_skeleton(source: str) -> tuple[str, list[str]]:
 
 
 def _parse_js_import_target(imp_line: str) -> str:
-    """Extract the module name from an import statement."""
     match = re.search(r"""(?:from|require\()\s*['"]([^'"]+)['"]""", imp_line)
     return match.group(1) if match else imp_line
 
 
-# ── Generic fallback ────────────────────────────────────────────────────────
-
-
 def _extract_generic_skeleton(source: str) -> tuple[str, list[str]]:
-    """Best-effort extraction for unknown languages."""
     lines = source.splitlines()
     meaningful: list[str] = []
     declaration_re = re.compile(
@@ -183,20 +155,13 @@ def _extract_generic_skeleton(source: str) -> tuple[str, list[str]]:
     return skeleton, []
 
 
-# ── Public API ──────────────────────────────────────────────────────────────
-
-
 def _extension(path: str) -> str:
     dot = path.rfind(".")
     return path[dot:].lower() if dot != -1 else ""
 
 
 def extract_skeleton(path: str, content: str) -> FileSkeletonResult:
-    """Extract a structural skeleton from a source file.
-
-    Returns a :class:`FileSkeletonResult` with the compact skeleton text and
-    a list of import targets (used downstream for the import graph).
-    """
+    """Extract a structural skeleton from a source file."""
     ext = _extension(path)
 
     try:
@@ -207,7 +172,7 @@ def extract_skeleton(path: str, content: str) -> FileSkeletonResult:
         else:
             skeleton, imports = _extract_generic_skeleton(content)
     except SyntaxError:
-        # Graceful degradation: return raw head on parse failure
+        # Fall back to raw head of file on parse failure
         skeleton = "\n".join(content.splitlines()[:_MAX_FALLBACK_LINES])
         imports = []
 
@@ -215,5 +180,5 @@ def extract_skeleton(path: str, content: str) -> FileSkeletonResult:
 
 
 def extract_skeletons(files: Sequence[tuple[str, str]]) -> list[FileSkeletonResult]:
-    """Batch extraction — convenience wrapper over :func:`extract_skeleton`."""
+    """Batch extraction over extract_skeleton."""
     return [extract_skeleton(path, content) for path, content in files]

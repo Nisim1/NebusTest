@@ -1,9 +1,4 @@
-"""GitHub REST API adapter — implements the ``RepoFetcher`` port.
-
-Uses the GitHub REST API for metadata and tree (2 calls per request),
-and ``raw.githubusercontent.com`` for file content (no rate limit).
-Supports optional ``GITHUB_TOKEN`` for higher API rate limits.
-"""
+"""GitHub REST API adapter — implements the RepoFetcher port."""
 
 from __future__ import annotations
 
@@ -29,12 +24,7 @@ _RAW_BASE = "https://raw.githubusercontent.com"
 
 
 class GitHubRestAdapter:
-    """Concrete ``RepoFetcher`` backed by the GitHub v3 REST API.
-
-    File content is fetched via ``raw.githubusercontent.com`` which does
-    **not** count against the GitHub API rate limit.  Only metadata and
-    tree calls use the rate-limited API (2 requests per summarise call).
-    """
+    """Concrete RepoFetcher backed by the GitHub v3 REST API."""
 
     def __init__(self, client: httpx.AsyncClient, token: str | None = None) -> None:
         self._client = client
@@ -44,8 +34,6 @@ class GitHubRestAdapter:
         }
         if token:
             self._api_headers["Authorization"] = f"Bearer {token}"
-
-    # ── Port implementation ─────────────────────────────────────────────
 
     async def fetch_metadata(self, url: GitHubUrl) -> RepoMetadata:
         """GET /repos/{owner}/{repo} → RepoMetadata."""
@@ -113,8 +101,6 @@ class GitHubRestAdapter:
         raise ContentExtractionError(
             f"raw.githubusercontent.com returned HTTP {resp.status_code} for {path}"
         )
-
-    # ── Internal helpers ────────────────────────────────────────────────
 
     async def _api_get(
         self,

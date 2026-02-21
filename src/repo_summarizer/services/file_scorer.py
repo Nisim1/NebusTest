@@ -1,9 +1,4 @@
-"""File importance scoring — heuristic + graph centrality hybrid.
-
-Combines PageRank on the import graph with name/path/size heuristics to
-produce a single composite score per file, allowing deterministic
-prioritisation of the most informative files.
-"""
+"""File importance scoring — heuristic + graph centrality hybrid."""
 
 from __future__ import annotations
 
@@ -13,8 +8,6 @@ from typing import Mapping, Sequence
 import networkx as nx  # type: ignore[import-untyped]
 
 from repo_summarizer.domain.entities import FileCategory, FileSkeletonResult, ScoredFile
-
-# ── Heuristic weight constants ──────────────────────────────────────────────
 
 _CATEGORY_BONUS: dict[FileCategory, float] = {
     FileCategory.README: 1.0,
@@ -66,19 +59,14 @@ def _size_score(size_bytes: int) -> float:
     return max(0.1, 1.0 - abs(math.log10(kb / 5)) * 0.3)
 
 
-# ── Graph centrality ───────────────────────────────────────────────────────
-
-
 def _build_import_graph(
     skeletons: Sequence[FileSkeletonResult],
 ) -> nx.DiGraph:  # type: ignore[type-arg]
     """Build a directed graph where edges represent import relationships."""
     graph: nx.DiGraph = nx.DiGraph()  # type: ignore[type-arg]
 
-    # Map module-like names to file paths for resolution
     path_by_module: dict[str, str] = {}
     for sk in skeletons:
-        # e.g. "src/foo/bar.py" → "bar", "foo.bar"
         parts = sk.path.replace("\\", "/").rsplit("/", maxsplit=1)
         name = parts[-1].rsplit(".", maxsplit=1)[0] if "." in parts[-1] else parts[-1]
         path_by_module[name] = sk.path
@@ -119,17 +107,7 @@ def score_files(
     categories: Mapping[str, FileCategory],
     sizes: Mapping[str, int],
 ) -> list[ScoredFile]:
-    """Return files sorted by descending composite importance score.
-
-    Parameters
-    ----------
-    skeletons:
-        AST extraction results (used to build the import graph).
-    categories:
-        ``{path: FileCategory}`` mapping produced by the file filter.
-    sizes:
-        ``{path: size_bytes}`` mapping from the tree.
-    """
+    """Return files sorted by descending composite importance score."""
     graph = _build_import_graph(skeletons)
     centrality = _compute_centrality(graph)
     use_centrality = len(centrality) >= 3
@@ -152,7 +130,6 @@ def score_files(
                 + 0.10 * size_h
             )
         else:
-            # Fallback: heuristic-only
             composite = (
                 0.35 * cat_bonus
                 + 0.30 * name_h

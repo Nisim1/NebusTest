@@ -1,9 +1,4 @@
-"""Summarize-repository use case — the main orchestration pipeline.
-
-This is the single entry point for the business logic.  It depends only on
-the two ports (:class:`RepoFetcher` and :class:`LlmGateway`) and the pure
-service modules.  The interface layer injects concrete adapters at runtime.
-"""
+"""Summarize-repository use case — main orchestration pipeline."""
 
 from __future__ import annotations
 
@@ -41,57 +36,36 @@ from repo_summarizer.services.token_budget import (
 
 logger = logging.getLogger(__name__)
 
-# ── Prompt templates ────────────────────────────────────────────────────────
-
 SYSTEM_PROMPT = """\
-You are a senior software analyst.  Given information about a GitHub \
-repository (language breakdown, README excerpts, configuration files, \
-directory tree, and AST skeletons of key source files), produce a \
-structured JSON analysis.
+You are a senior software analyst. Given information about a GitHub \
+repository (language breakdown, README, configuration files, directory \
+tree, and AST skeletons of key source files), produce a structured JSON analysis.
 
 Return **only** valid JSON with exactly these three keys:
 
 {
-  "summary": "<2-4 sentence human-readable description of what the project does>",
-  "technologies": ["<language>", "<framework>", "<library>", ...],
-  "structure": "<1-3 sentence description of the project layout>"
+  "summary": "<description>",
+  "technologies": ["<lang>", "<framework>", ...],
+  "structure": "<layout>"
 }
 
 Guidelines:
 - Be specific and factual — only mention technologies you see evidence of.
-- For *technologies*, include all languages from the language breakdown \
-(ordered by percentage), then add frameworks and notable libraries found \
-in config files and source code.
-- For *structure*, refer to concrete directory names you see in the tree.
-- Do NOT invent information that is not supported by the provided content.
+- For *technologies*, include languages ordered by percentage, then frameworks and notable libraries.
+- For *structure*, refer to concrete directory names from the tree.
+- Do NOT invent information not supported by the provided content.
 """
 
 FILE_SUMMARY_SYSTEM_PROMPT = """\
-You are a code analyst.  Summarise the following source file in 2-3 concise \
-sentences: what it does, what it exports, and its role in the project.
+You are a code analyst. Summarise the following source file in 2-3 sentences: \
+what it does, what it exports, and its role in the project.
 
-Return a JSON object with a single key "file_summary" containing your summary text.
+Return a JSON object with a single key "file_summary" containing your summary.
 """
-
-# ── Use case ────────────────────────────────────────────────────────────────
 
 
 class SummarizeRepoUseCase:
-    """Orchestrates the full repo → summary pipeline.
-
-    Parameters
-    ----------
-    repo_fetcher:
-        Adapter that can fetch tree and file content from GitHub.
-    llm_gateway:
-        Adapter that can send prompts to an LLM.
-    max_context_tokens:
-        Token budget for the LLM context window (excluding system prompt).
-    max_files_to_fetch:
-        Maximum number of individual files to download.
-    max_file_size_kb:
-        Skip files larger than this threshold.
-    """
+    """Orchestrates the full repo → summary pipeline."""
 
     def __init__(
         self,
@@ -106,8 +80,6 @@ class SummarizeRepoUseCase:
         self._max_tokens = max_context_tokens
         self._max_files = max_files_to_fetch
         self._max_size_kb = max_file_size_kb
-
-    # ── Public entry point ──────────────────────────────────────────────
 
     async def execute(self, github_url: str) -> SummaryResult:
         """Run the full pipeline and return a structured summary."""
@@ -131,7 +103,7 @@ class SummarizeRepoUseCase:
                 f"Repository {url.full_name} has no processable files after filtering."
             )
 
-        # 3. Decide which files to fetch (prioritise README, config, entry points, source)
+        # 3. Select files to fetch by priority
         files_to_fetch = self._select_files_to_fetch(classified)
         logger.info("Fetching %d files from %s", len(files_to_fetch), url.full_name)
 
@@ -145,7 +117,7 @@ class SummarizeRepoUseCase:
             if f.category in (FileCategory.SOURCE, FileCategory.ENTRY_POINT, FileCategory.TEST)
         ]
 
-        # 6. Graph centrality scoring (only on source files)
+        # 6. Graph centrality scoring
         categories_map = {f.path: f.category for f in repo_files}
         sizes_map = {f.path: f.size_bytes for f in repo_files}
 
@@ -157,32 +129,25 @@ class SummarizeRepoUseCase:
         # 7. Build raw content for each budget slot
         raw_contents = self._build_raw_contents(tree, repo_files, skeletons, scored, languages)
 
-        # 8. Security sentinel — redact secrets
+        # 8. Redact secrets
         sanitized, redaction_count = sanitize_batch(raw_contents)
         if redaction_count:
             logger.warning("Redacted %d potential secret(s) from context", redaction_count)
 
         # 9. Token budgeting
         budgeted = allocate(sanitized, total_budget=self._max_tokens)
-        logger.info(
-            "Token budget: %d / %d used",
-            budgeted.total_tokens,
-            budgeted.budget_limit,
-        )
+        logger.info("Token budget: %d / %d used", budgeted.total_tokens, budgeted.budget_limit)
 
-        # 10. Decide single-pass vs multi-pass
+        # 10. Single-pass or multi-pass summarisation
         if self._needs_multi_pass(budgeted, raw_contents):
             return await self._multi_pass_summarise(
                 url, metadata.default_branch, tree, repo_files, scored, budgeted
             )
         return await self._single_pass_summarise(budgeted)
 
-    # ── File selection ──────────────────────────────────────────────────
-
     def _select_files_to_fetch(
         self, classified: list[tuple[FileNode, FileCategory]]
     ) -> list[tuple[FileNode, FileCategory]]:
-        """Pick files to download, ordered by category priority."""
         priority = {
             FileCategory.README: 0,
             FileCategory.CONFIG: 1,
@@ -195,15 +160,12 @@ class SummarizeRepoUseCase:
         classified.sort(key=lambda item: (priority.get(item[1], 99), item[0].path))
         return classified[: self._max_files]
 
-    # ── Concurrent fetch ────────────────────────────────────────────────
-
     async def _fetch_files(
         self,
         url: GitHubUrl,
         branch: str,
         files: list[tuple[FileNode, FileCategory]],
     ) -> list[RepoFile]:
-        """Fetch file contents concurrently with a concurrency semaphore."""
         sem = asyncio.Semaphore(10)
 
         async def _fetch_one(node: FileNode, category: FileCategory) -> RepoFile | None:
@@ -227,8 +189,6 @@ class SummarizeRepoUseCase:
         )
         return [r for r in results if r is not None]
 
-    # ── Content building ────────────────────────────────────────────────
-
     def _build_raw_contents(
         self,
         tree: list[FileNode],
@@ -237,10 +197,8 @@ class SummarizeRepoUseCase:
         scored: list[ScoredFile],
         languages: dict[str, int] | None = None,
     ) -> dict[str, str]:
-        """Organise fetched data into the budget slots."""
         contents: dict[str, str] = {}
 
-        # Languages (from GitHub Languages API)
         if languages:
             total_bytes = sum(languages.values()) or 1
             lang_lines = [
@@ -249,12 +207,10 @@ class SummarizeRepoUseCase:
             ]
             contents["languages"] = "\n".join(lang_lines)
 
-        # README
         readmes = [f for f in repo_files if f.category == FileCategory.README]
         if readmes:
             contents["readme"] = readmes[0].content
 
-        # Config files
         configs = [f for f in repo_files if f.category == FileCategory.CONFIG]
         if configs:
             parts = []
@@ -262,21 +218,18 @@ class SummarizeRepoUseCase:
                 parts.append(f"### {f.path}\n\n{f.content}")
             contents["config"] = "\n\n".join(parts)
 
-        # Directory tree (text representation)
-        tree_text = self._render_tree(tree)
-        contents["tree"] = tree_text
+        contents["tree"] = self._render_tree(tree)
 
-        # Source file skeletons (ordered by score)
         scored_paths = {s.path for s in scored}
         skeleton_map = {sk.path: sk.skeleton_text for sk in skeletons}
 
         source_parts: list[str] = []
-        # First: scored files in order
+        # Scored files first, in ranked order
         for sf in scored:
             if sf.path in skeleton_map:
                 source_parts.append(f"### {sf.path}\n\n{skeleton_map[sf.path]}")
 
-        # Then: remaining source files not in skeletons (entry points, etc.)
+        # Remaining entry points / source files not covered by skeletons
         for f in repo_files:
             if f.path not in scored_paths and f.category in (
                 FileCategory.ENTRY_POINT,
@@ -291,25 +244,22 @@ class SummarizeRepoUseCase:
 
     @staticmethod
     def _render_tree(tree: list[FileNode]) -> str:
-        """Render tree nodes as a flat indented listing (compact)."""
         lines: list[str] = []
         for node in tree:
             if node.type == "tree":
                 lines.append(f"{node.path}/")
             else:
                 lines.append(node.path)
-        # Cap at 200 lines to keep it compact
+        # Cap at 200 lines
         if len(lines) > 200:
             lines = lines[:200]
             lines.append(f"… and {len(tree) - 200} more files")
         return "\n".join(lines)
 
-    # ── Multi-pass detection ────────────────────────────────────────────
-
     def _needs_multi_pass(
         self, budgeted: BudgetedContent, raw: dict[str, str]
     ) -> bool:
-        """Return True when raw source content significantly exceeds its slot."""
+        """Return True when raw source content significantly exceeds its slot budget."""
         source_slot = budgeted.get_slot("source")
         raw_source = raw.get("source", "")
         if not raw_source or not source_slot:
@@ -317,14 +267,9 @@ class SummarizeRepoUseCase:
         raw_tokens = count_tokens(raw_source)
         return raw_tokens > source_slot.max_tokens * 2
 
-    # ── Single-pass summarisation ───────────────────────────────────────
-
     async def _single_pass_summarise(self, budgeted: BudgetedContent) -> SummaryResult:
-        """One LLM call with the full budgeted context."""
         context = assemble(budgeted)
         return await self._call_llm_for_summary(context)
-
-    # ── Multi-pass summarisation ────────────────────────────────────────
 
     async def _multi_pass_summarise(
         self,
@@ -335,15 +280,13 @@ class SummarizeRepoUseCase:
         scored: list[ScoredFile],
         budgeted: BudgetedContent,
     ) -> SummaryResult:
-        """Pass 1 = summarise top files individually; Pass 2 = synthesise."""
         logger.info("Using multi-pass summarisation for %s", url.full_name)
 
-        # Pass 1 — summarise top source files
         source_files = [f for f in repo_files if f.category in (
             FileCategory.SOURCE, FileCategory.ENTRY_POINT
         )]
 
-        # Pick top-scored source files (up to 8)
+        # Summarise top 8 scored source files individually
         scored_paths = [s.path for s in scored[:8]]
         top_sources = [f for f in source_files if f.path in scored_paths]
 
@@ -354,7 +297,6 @@ class SummarizeRepoUseCase:
                     FILE_SUMMARY_SYSTEM_PROMPT,
                     f"File: {f.path}\n\n{f.content[:3000]}",
                 )
-                # Parse the JSON wrapper from the file summary
                 try:
                     summary_data = json.loads(raw_summary)
                     summary_text = summary_data.get("file_summary", raw_summary)
@@ -364,7 +306,7 @@ class SummarizeRepoUseCase:
             except Exception:
                 logger.debug("Multi-pass: failed to summarise %s", f.path, exc_info=True)
 
-        # Pass 2 — replace source slot with file summaries and re-budget
+        # Re-budget with file summaries replacing raw source
         file_summary_text = "\n\n".join(file_summaries) if file_summaries else ""
         readme_slot = budgeted.get_slot("readme")
         config_slot = budgeted.get_slot("config")
@@ -381,19 +323,12 @@ class SummarizeRepoUseCase:
 
         return await self._call_llm_for_summary(context)
 
-    # ── LLM interaction ─────────────────────────────────────────────────
-
     async def _call_llm_for_summary(self, context: str) -> SummaryResult:
-        """Send context to the LLM, parse JSON, and return a SummaryResult."""
         raw = await self._llm.complete(SYSTEM_PROMPT, context)
         return self._parse_llm_response(raw)
 
     @staticmethod
     def _parse_llm_response(raw: str) -> SummaryResult:
-        """Parse the LLM JSON output into a SummaryResult.
-
-        Handles common failure modes: markdown fences, partial JSON, etc.
-        """
         text = raw.strip()
 
         # Strip markdown code fences if present
@@ -420,7 +355,6 @@ class SummarizeRepoUseCase:
         if not isinstance(structure, str):
             structure = ""
 
-        # Normalise technologies to list of strings
         technologies = [str(t) for t in technologies if t]
 
         return SummaryResult(
@@ -429,8 +363,6 @@ class SummarizeRepoUseCase:
             structure=structure,
         )
 
-
-# ── Helpers ─────────────────────────────────────────────────────────────────
 
 _LANGUAGE_MAP: dict[str, str] = {
     ".py": "Python",

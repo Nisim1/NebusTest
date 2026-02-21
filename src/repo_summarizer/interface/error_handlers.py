@@ -1,8 +1,4 @@
-"""Global exception handlers — translate domain errors to HTTP responses.
-
-Each domain exception maps to a specific HTTP status code and the
-standard ``{"status": "error", "message": "..."}`` envelope.
-"""
+"""Global exception handlers — translate domain errors to HTTP responses."""
 
 from __future__ import annotations
 
@@ -46,8 +42,6 @@ def _error_json(status_code: int, message: str) -> JSONResponse:
 def register_error_handlers(app: FastAPI) -> None:
     """Attach exception handlers to the FastAPI application."""
 
-    # ── Domain exceptions ───────────────────────────────────────────────
-
     for exc_type, code in _EXCEPTION_STATUS:
 
         def _make_handler(
@@ -61,8 +55,6 @@ def register_error_handlers(app: FastAPI) -> None:
 
         app.add_exception_handler(exc_type, _make_handler(code))
 
-    # ── Pydantic / FastAPI validation errors ────────────────────────────
-
     @app.exception_handler(RequestValidationError)
     async def validation_handler(
         request: Request, exc: RequestValidationError
@@ -72,8 +64,6 @@ def register_error_handlers(app: FastAPI) -> None:
             loc = " → ".join(str(p) for p in err.get("loc", []))
             messages.append(f"{loc}: {err.get('msg', 'validation error')}")
         return _error_json(422, "; ".join(messages))
-
-    # ── Catch-all for unexpected errors ─────────────────────────────────
 
     @app.exception_handler(Exception)
     async def generic_handler(request: Request, exc: Exception) -> JSONResponse:

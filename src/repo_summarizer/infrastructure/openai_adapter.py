@@ -1,8 +1,4 @@
-"""OpenAI adapter — implements the ``LlmGateway`` port.
-
-Wraps the official ``openai`` async SDK.  Uses JSON-mode and low
-temperature for deterministic, parseable output.
-"""
+"""OpenAI adapter — implements the LlmGateway port."""
 
 from __future__ import annotations
 
@@ -55,8 +51,6 @@ class OpenAIAdapter:
             ) from exc
 
         except RateLimitError as exc:
-            # Surface the actual OpenAI message — distinguishes
-            # "quota exceeded" (no credits) from "too many requests".
             detail = str(exc)
             logger.error("OpenAI RateLimitError: %s", detail)
             raise LlmError(
@@ -64,7 +58,7 @@ class OpenAIAdapter:
             ) from exc
 
         except LlmError:
-            raise  # Re-raise our own errors without wrapping
+            raise
 
         except Exception as exc:
             raise LlmError(f"LLM call failed: {exc}") from exc

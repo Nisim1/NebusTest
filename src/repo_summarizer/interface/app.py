@@ -36,8 +36,6 @@ def create_app() -> FastAPI:
     register_error_handlers(app)
     app.include_router(router)
 
-    # ── Health check (simple liveness probe) ────────────────────────────
-
     @app.get("/health", include_in_schema=False)
     async def health() -> dict[str, str]:
         return {"status": "ok"}

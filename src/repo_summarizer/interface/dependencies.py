@@ -1,9 +1,4 @@
-"""FastAPI dependency injection wiring.
-
-Creates and caches the concrete adapters and the use-case instance so that
-the route handler receives a fully wired ``SummarizeRepoUseCase`` via
-``Depends()``.
-"""
+"""FastAPI dependency injection wiring."""
 
 from __future__ import annotations
 
@@ -15,8 +10,6 @@ from repo_summarizer.infrastructure.config import Settings, get_settings
 from repo_summarizer.infrastructure.github_rest_adapter import GitHubRestAdapter
 from repo_summarizer.infrastructure.openai_adapter import OpenAIAdapter
 from repo_summarizer.services.summarize_repo import SummarizeRepoUseCase
-
-# ── Singletons (one per process) ───────────────────────────────────────────
 
 _http_client: httpx.AsyncClient | None = None
 _openai_adapter: OpenAIAdapter | None = None
@@ -44,9 +37,6 @@ async def shutdown() -> None:
     if _openai_adapter:
         await _openai_adapter.close()
         _openai_adapter = None
-
-
-# ── Dependency providers ────────────────────────────────────────────────────
 
 
 @lru_cache(maxsize=1)
